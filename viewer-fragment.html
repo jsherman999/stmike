@@ -1,0 +1,129 @@
+<div id="st-michael-model">
+  <h3>Downtown St. Michael, Minnesota</h3>
+  <div class="viz-controls">
+    <label class="form-label">View
+      <select class="form-select" id="stm-focus" aria-label="Model view">
+        <option value="overview">Downtown overview</option>
+        <option value="way/552455209">Historic church</option>
+        <option value="way/553839837">Catholic school</option>
+        <option value="way/553845627">Main Street Farmer</option>
+        <option value="way/553845620">Walgreens</option>
+        <option value="top">North-up overhead</option>
+      </select>
+    </label>
+    <div class="viz-row">
+      <button class="btn" type="button" id="stm-left" aria-label="Rotate left">↶</button>
+      <button class="btn" type="button" id="stm-right" aria-label="Rotate right">↷</button>
+      <button class="btn" type="button" id="stm-plus" aria-label="Zoom in">+</button>
+      <button class="btn" type="button" id="stm-minus" aria-label="Zoom out">−</button>
+    </div>
+  </div>
+  <div class="stm-stage">
+    <canvas id="stm-canvas" role="img" aria-label="Interactive 3D model of downtown St. Michael. Buildings follow OpenStreetMap footprints. Heights and church details are estimates. Use the view selector and rotate or zoom buttons, or drag and pinch the scene.">Interactive 3D view requires WebGL.</canvas>
+    <div id="stm-labels" aria-hidden="true"></div>
+    <div id="stm-compass" class="text-small" aria-hidden="true">N ↑</div>
+    <span id="stm-loading" class="text-small" role="status">Loading model…</span>
+  </div>
+  <div id="stm-detail" class="text-small" aria-live="polite">188 mapped buildings · Heights estimated · Flat terrain</div>
+  <div class="stm-credit text-small"><span id="stm-span">850 × 690 m · Historic downtown core</span><a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">© OpenStreetMap contributors · ODbL</a></div>
+</div>
+<style>
+  #st-michael-model .stm-stage{position:relative;width:100%;height:510px;overflow:hidden;margin:8px 0}
+  #st-michael-model canvas{display:block;width:100%;height:100%;touch-action:none;cursor:grab}
+  #st-michael-model canvas:active{cursor:grabbing}
+  #st-michael-model #stm-labels{position:absolute;inset:0;pointer-events:none}
+  #st-michael-model .stm-label{position:absolute;white-space:nowrap;transform:translate(-50%,-100%);color:var(--foreground);text-shadow:0 1px 3px var(--background),0 -1px 3px var(--background),1px 0 3px var(--background),-1px 0 3px var(--background);font-weight:500}
+  #st-michael-model #stm-compass{position:absolute;right:20px;top:16px;color:var(--foreground);transform-origin:center}
+  #st-michael-model #stm-loading{position:absolute;left:20px;top:18px;color:var(--foreground)}
+  #st-michael-model .stm-credit{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-top:8px}
+  #st-michael-model #stm-detail{min-height:2.6em}
+  @media(max-width:480px){#st-michael-model .stm-stage{height:420px}}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+<script id="stm-geodata" type="application/json">__GEODATA__</script>
+<script>
+__MODEL_CODE__
+(function(){
+  const root=document.getElementById('st-michael-model'), canvas=root.querySelector('#stm-canvas'), stage=root.querySelector('.stm-stage'), loading=root.querySelector('#stm-loading');
+  try {
+    if(typeof THREE==='undefined'||typeof d3==='undefined') throw new Error('The 3D library could not load.');
+    const data=JSON.parse(document.getElementById('stm-geodata').textContent);
+    const probe=document.createElement('span');probe.hidden=true;root.appendChild(probe);
+    const colorCanvas=document.createElement('canvas');colorCanvas.width=colorCanvas.height=1;
+    const cx=colorCanvas.getContext('2d');
+    function cssColor(name){probe.style.color=`var(${name})`;const css=getComputedStyle(probe).color;cx.clearRect(0,0,1,1);cx.fillStyle=css;cx.fillRect(0,0,1,1);const v=cx.getImageData(0,0,1,1).data;return new THREE.Color(v[0]/255,v[1]/255,v[2]/255);}
+    function palette(){
+      const bg=cssColor('--background'),fg=cssColor('--foreground'), green=cssColor('--green'),blue=cssColor('--blue'),accent=cssColor('--orange');
+      const dark=(bg.r+bg.g+bg.b)<1.3;
+      return {base:bg.clone().lerp(fg,.22),ground:bg.clone().lerp(fg,dark?.15:.045),building:bg.clone().lerp(fg,dark?.62:.29),institution:bg.clone().lerp(fg,dark?.74:.22),landmark:accent.clone().lerp(bg,dark?.08:.20),roof:fg.clone().lerp(bg,dark?.32:.47),trim:fg.clone().lerp(bg,.27),window:fg.clone().lerp(bg,.14),clock:bg.clone().lerp(fg,.05),green:bg.clone().lerp(green,dark?.28:.15),water:bg.clone().lerp(blue,.38),parking:bg.clone().lerp(fg,dark?.20:.085),curb:bg.clone().lerp(fg,dark?.43:.16),road:bg.clone().lerp(fg,dark?.28:.20),path:bg.clone().lerp(fg,.24),marking:bg.clone().lerp(accent,.4)};
+    }
+    const world=buildDowntownModel(THREE,d3,data,palette()),scene=new THREE.Scene();scene.add(world.scene);
+    const renderer=new THREE.WebGLRenderer({canvas,antialias:true,alpha:true});renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
+    renderer.outputEncoding=THREE.sRGBEncoding;renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+    renderer.setClearColor(0x000000,0);
+    const ambient=new THREE.HemisphereLight(0xffffff,0xffffff,.85);scene.add(ambient);
+    const sun=new THREE.DirectionalLight(0xffffff,.8);sun.position.set(-320,600,250);sun.castShadow=true;
+    Object.assign(sun.shadow.camera,{left:-650,right:650,top:650,bottom:-650,near:10,far:1400});sun.shadow.mapSize.set(2048,2048);sun.shadow.normalBias=.8;sun.shadow.bias=-.0001;scene.add(sun);
+    const camera=new THREE.PerspectiveCamera(38,1,.5,5000),control=new THREE.OrbitControls(camera,canvas);
+    control.enableDamping=true;control.dampingFactor=.1;control.minDistance=45;control.maxDistance=2300;control.maxPolarAngle=Math.PI*.48;control.minPolarAngle=.025;
+    control.screenSpacePanning=false;control.rotateSpeed=.7;control.zoomSpeed=.8;control.target.set(0,0,-20);
+    const labelRoot=root.querySelector('#stm-labels'), detail=root.querySelector('#stm-detail'), focus=root.querySelector('#stm-focus');
+    const labels=[];
+    function label(name,xyz,priority=2){const el=document.createElement('span');el.className='stm-label text-small';el.textContent=name;labelRoot.appendChild(el);labels.push({el,p:new THREE.Vector3(...xyz),priority});}
+    const church=world.anchors.find(a=>a.id==='way/552455209');label('Historic church',[church.position[0],42,church.position[1]],0);
+    for(const name of ['Main Street North','Central Avenue West','Central Avenue East']) {
+      const ways=data.features.filter(f=>f.properties.name===name&&f.geometry.type==='LineString');
+      const candidates=[];
+      ways.forEach(f=>{const p=f.geometry.coordinates.map(world.project);for(let i=1;i<p.length;i++){const a=p[i-1],b=p[i];const x=(a[0]+b[0])/2,z=(a[1]+b[1])/2;if(x>world.extent[0]+90&&x<world.extent[2]-90&&z>world.extent[1]+80&&z<world.extent[3]-60)candidates.push({p:[x,.5,z],len:Math.hypot(a[0]-b[0],a[1]-b[1])});}});
+      candidates.sort((a,b)=>b.len-a.len);if(candidates.length)label(name.replace('Avenue','Ave.').replace('Street','St.'),candidates[0].p,1);
+    }
+    const cemetery=world.anchors.find(a=>a.name==='Cemetery');if(cemetery)label('Cemetery',[cemetery.position[0],1,cemetery.position[1]],3);
+    const selection=new THREE.BoxHelper(new THREE.Object3D(),cssColor('--orange'));selection.visible=false;scene.add(selection);
+    let selected=null;
+    function select(id){
+      selected=world.pickables.find(m=>m.userData.osm_id===id)||null;
+      if(selected){selection.setFromObject(selected);selection.visible=true;const t=selected.userData;detail.textContent=`${t.name} · ≈ ${t.height_m.toFixed(1)} m high · ${t.height_basis.startsWith('Estimated')?'estimated height':t.height_basis}`;}
+      else {selection.visible=false;detail.textContent=`${world.report.buildings} mapped buildings · Heights estimated · Flat terrain`;}
+    }
+    function overview(top=false){
+      select(null);control.target.set(0,0,-15);const w=stage.clientWidth,h=stage.clientHeight;
+      const dir=(top?new THREE.Vector3(0,1,.002):new THREE.Vector3(.48,.77,.66)).normalize();
+      const right=new THREE.Vector3(dir.z,0,-dir.x).normalize(),up=new THREE.Vector3().crossVectors(dir,right);
+      const box=new THREE.Box3().setFromObject(world.scene),tan=Math.tan(19*Math.PI/180);let distance=300;
+      for(const x of [box.min.x,box.max.x])for(const y of [box.min.y,box.max.y])for(const z of [box.min.z,box.max.z]){
+        const p=new THREE.Vector3(x,y,z).sub(control.target),d=p.dot(dir);
+        distance=Math.max(distance,d+Math.abs(p.dot(right))/(tan*(w/h)*.9),d+Math.abs(p.dot(up))/(tan*.9));
+      }
+      camera.position.copy(control.target).add(dir.multiplyScalar(distance));
+      control.update();
+    }
+    function focusBuilding(id){select(id);if(!selected)return;const box=new THREE.Box3().setFromObject(selected),c=box.getCenter(new THREE.Vector3()),s=box.getSize(new THREE.Vector3());control.target.copy(c);const d=Math.max(170,Math.max(s.x,s.z)*3);camera.position.copy(c).add(new THREE.Vector3(d*.65,d*.68,d*.75));control.update();}
+    focus.addEventListener('change',()=>focus.value==='overview'?overview():focus.value==='top'?overview(true):focusBuilding(focus.value));
+    function rotate(sign){const offset=camera.position.clone().sub(control.target);offset.applyAxisAngle(new THREE.Vector3(0,1,0),sign*Math.PI/8);camera.position.copy(control.target).add(offset);control.update();}
+    root.querySelector('#stm-left').addEventListener('click',()=>rotate(1));root.querySelector('#stm-right').addEventListener('click',()=>rotate(-1));
+    function zoom(f){const offset=camera.position.clone().sub(control.target);offset.multiplyScalar(f);offset.clampLength(control.minDistance,control.maxDistance);camera.position.copy(control.target).add(offset);control.update();}
+    root.querySelector('#stm-plus').addEventListener('click',()=>zoom(.8));root.querySelector('#stm-minus').addEventListener('click',()=>zoom(1.25));
+    const ray=new THREE.Raycaster();let down=null;
+    canvas.addEventListener('pointerdown',e=>{down={x:e.clientX,y:e.clientY};});
+    canvas.addEventListener('pointerup',e=>{if(!down||Math.hypot(e.clientX-down.x,e.clientY-down.y)>5)return;const r=canvas.getBoundingClientRect();ray.setFromCamera(new THREE.Vector2((e.clientX-r.left)/r.width*2-1,-(e.clientY-r.top)/r.height*2+1),camera);const hits=ray.intersectObjects(world.pickables);if(hits.length)select(hits[0].object.userData.osm_id);else select(null);down=null;});
+    let priorWidth=0;
+    function resize(){const w=stage.clientWidth,h=stage.clientHeight;renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();if(priorWidth===0)overview();priorWidth=w;}
+    new ResizeObserver(resize).observe(stage);resize();
+    function recolor(){const p=palette();for(const [k,v] of Object.entries(p))world.materials[k].color.copy(v);selection.material.color.copy(cssColor('--orange'));}
+    new MutationObserver(recolor).observe(document.documentElement,{attributes:true,attributeFilter:['class','style','data-theme']});
+    if(window.matchMedia)window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change',recolor);
+    function positionLabels(){
+      const bounds=[],w=stage.clientWidth,h=stage.clientHeight;const ordered=labels.slice().sort((a,b)=>a.priority-b.priority);
+      ordered.forEach(l=>{const q=l.p.clone().project(camera);const x=(q.x+1)*w/2,y=(1-q.y)*h/2;const ew=l.el.offsetWidth||110,eh=l.el.offsetHeight||16;const box={x:x-ew/2-5,y:y-eh-8,r:x+ew/2+5,b:y+4};const off=q.z>1||q.z<-1||box.x<4||box.r>w-4||box.y<4||box.b>h-4;const clash=bounds.some(b=>!(box.r<b.x||box.x>b.r||box.b<b.y||box.y>b.b));l.el.style.visibility=off||clash?'hidden':'visible';if(!off&&!clash){l.el.style.left=x+'px';l.el.style.top=(y-5)+'px';bounds.push(box);}});
+      const north=new THREE.Vector3(0,0,-100).project(camera),origin=new THREE.Vector3().project(camera);const angle=Math.atan2((north.x-origin.x)*w,-(north.y-origin.y)*h)*180/Math.PI;
+      root.querySelector('#stm-compass').style.transform=`rotate(${angle+180}deg)`;
+    }
+    let active=true;new IntersectionObserver(entries=>{active=entries[0].isIntersecting;}).observe(stage);
+    function tick(){requestAnimationFrame(tick);if(!active)return;control.update();positionLabels();renderer.render(scene,camera);}
+    tick();loading.hidden=true;
+    root.querySelector('#stm-span').textContent=`${Math.round((world.extent[2]-world.extent[0])/10)*10} × ${Math.round((world.extent[3]-world.extent[1])/10)*10} m · Historic downtown core`;
+  } catch(e){loading.textContent=e.message+' The downloadable model remains available.';loading.setAttribute('role','alert');console.error(e);}
+})();
+</script>
